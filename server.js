@@ -124,6 +124,24 @@ query Live($zone: String!, $since: Time!, $until: Time!) {
 
 const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|go-http|httpclient|monitor|uptime|pingdom|scan|probe|headless|lighthouse|facebookexternalhit|preview/i;
 
+// Bot traffic over the selected range: group by user agent, classify with
+// the same heuristic (no Bot Management dataset on this plan).
+const BOT_QUERY = `
+query Bots($zone: String!, $since: Time!, $until: Time!) {
+  viewer {
+    zones(filter: { zoneTag: $zone }) {
+      agents: httpRequestsAdaptiveGroups(
+        limit: 1000
+        filter: { datetime_geq: $since, datetime_lt: $until }
+        orderBy: [count_DESC]
+      ) {
+        count
+        dimensions { userAgent }
+      }
+    }
+  }
+}`;
+
 // Separate query: firewall dataset needs Zone > Firewall Services > Read,
 // which the "Read analytics and logs" token template does not include.
 // Queried on its own so a missing permission degrades gracefully.
@@ -180,7 +198,18 @@ async function fetchStats(minutes) {
     })
     .catch((err) => ({ liveHumans: null, liveError: err.message }));
 
-  const [z, fw, live] = await Promise.all([trafficPromise, firewallPromise, livePromise]);
+  const botsPromise = graphql(BOT_QUERY, vars)
+    .then((z) => {
+      let bot = 0, total = 0;
+      for (const g of z.agents || []) {
+        total += g.count;
+        if (BOT_UA.test(g.dimensions.userAgent || '')) bot += g.count;
+      }
+      return { botRequests: bot, botPct: total ? (bot / total) * 100 : 0, botError: null };
+    })
+    .catch((err) => ({ botRequests: null, botPct: null, botError: err.message }));
+
+  const [z, fw, live, bots] = await Promise.all([trafficPromise, firewallPromise, livePromise, botsPromise]);
   return {
     zoneName: ZONE_NAME,
     since: since.toISOString(),
@@ -195,6 +224,9 @@ async function fetchStats(minutes) {
     firewallError: fw.firewallError,
     liveHumans: live.liveHumans,
     liveError: live.liveError,
+    botRequests: bots.botRequests,
+    botPct: bots.botPct,
+    botError: bots.botError,
   };
 }
 

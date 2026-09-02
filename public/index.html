@@ -336,7 +336,9 @@ function render(d) {
     tile('Requests', fmtNum(totalReq), fmtNum(rpm) + ' / min avg') +
     tile('Visits', fmtNum(totalVisits)) +
     tile('Bandwidth', fmtBytes(totalBytes)) +
-    tile('Cache hit ratio', hitRate.toFixed(1) + '%', cacheTotal ? fmtNum(cacheHit) + ' hits' : '') +
+    (d.botRequests == null
+      ? tile('Bot traffic', '—', 'unavailable')
+      : tile('Bot traffic', fmtNum(d.botRequests), d.botPct.toFixed(1) + '% of requests')) +
     tile('5xx error rate', errRate.toFixed(2) + '%',
       errRate > 1 ? '⚠ elevated' : '✓ healthy', errRate > 1 ? 'bad' : 'ok') +
     (d.firewallError
