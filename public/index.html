@@ -82,6 +82,8 @@
     cursor: pointer; font: inherit;
   }
   .range-btn.active { color: var(--text-primary); border-color: var(--series-1); font-weight: 600; }
+  .custom-range .dash { color: var(--muted); }
+  input[type="date"].range-btn { padding: 3px 6px; color-scheme: inherit; font-size: 13px; }
   #updated { color: var(--muted); font-size: 12px; }
   #error {
     display: none; background: var(--surface-1); border: 1px solid var(--critical);
@@ -141,6 +143,12 @@
   <span class="zone" id="zoneName">tijusacademy.com</span>
   <span class="spacer"></span>
   <div class="controls" id="ranges"></div>
+  <div class="controls custom-range">
+    <input type="date" id="dateFrom" class="range-btn" title="Start date">
+    <span class="dash">–</span>
+    <input type="date" id="dateTo" class="range-btn" title="End date">
+    <button class="range-btn" id="applyRange">Go</button>
+  </div>
   <button class="range-btn" id="themeBtn" title="Theme: Auto / Light / Dark">🌓 Auto</button>
   <span id="updated"></span>
 </header>
@@ -219,7 +227,7 @@ function renderRanges() {
     const b = document.createElement('button');
     b.className = 'range-btn' + (r.id === range.id ? ' active' : '');
     b.textContent = r.label;
-    b.onclick = () => { range = r; renderRanges(); setTimer(); load(); };
+    b.onclick = () => { range = r; renderRanges(); $('applyRange').classList.remove('active'); setTimer(); load(); };
     $('ranges').appendChild(b);
   }
 }
@@ -230,7 +238,34 @@ function statsUrl() {
     const since = new Date(start.getTime() - 24 * 3600 * 1000);
     return `/api/stats?since=${since.toISOString()}&until=${start.toISOString()}`;
   }
+  if (range.id === 'custom') {
+    return `/api/stats?since=${range.since.toISOString()}&until=${range.until.toISOString()}`;
+  }
   return `/api/stats?minutes=${range.minutes}`;
+}
+
+// ---- custom date range (free-plan analytics keep ~7 days) ----
+function initDatePicker() {
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const min = new Date(today.getTime() - 6 * 24 * 3600 * 1000);
+  for (const id of ['dateFrom', 'dateTo']) {
+    $(id).min = iso(min);
+    $(id).max = iso(today);
+  }
+  $('dateTo').value = iso(today);
+  $('dateFrom').value = iso(min);
+  $('applyRange').onclick = () => {
+    const from = new Date($('dateFrom').value + 'T00:00:00');
+    const toDay = new Date($('dateTo').value + 'T00:00:00');
+    if (isNaN(from) || isNaN(toDay) || from > toDay) return;
+    // end date inclusive, capped at "now"
+    const until = new Date(Math.min(toDay.getTime() + 24 * 3600 * 1000, Date.now()));
+    range = { id: 'custom', since: from, until, poll: 300000 };
+    renderRanges();
+    $('applyRange').classList.add('active');
+    setTimer(); load();
+  };
 }
 
 // ---- stat tiles ----
@@ -459,6 +494,7 @@ function render(d) {
 }
 
 renderRanges();
+initDatePicker();
 load();
 setTimer();
 window.addEventListener('resize', () => load());
