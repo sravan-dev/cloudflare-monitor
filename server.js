@@ -55,18 +55,34 @@ async function resolveZone() {
 }
 
 // ---------- GraphQL ----------
-const TRAFFIC_QUERY = `
+// Free-plan GraphQL caps each query's time range at 1 day, so wider ranges
+// are split into daily chunks and merged. The series bucket adapts to span.
+function bucketFor(spanMinutes) {
+  if (spanMinutes <= 360) return { dim: 'datetimeMinute', minutes: 1 };
+  if (spanMinutes <= 2880) return { dim: 'datetimeFifteenMinutes', minutes: 15 };
+  return { dim: 'datetimeHour', minutes: 60 };
+}
+
+const trafficQuery = (bucketDim) => `
 query Traffic($zone: String!, $since: Time!, $until: Time!, $seriesLimit: Int!) {
   viewer {
     zones(filter: { zoneTag: $zone }) {
       series: httpRequestsAdaptiveGroups(
         limit: $seriesLimit
         filter: { datetime_geq: $since, datetime_lt: $until }
-        orderBy: [datetimeMinute_ASC]
+        orderBy: [${bucketDim}_ASC]
       ) {
         count
         sum { edgeResponseBytes visits }
-        dimensions { datetimeMinute }
+        dimensions { ts: ${bucketDim} }
+      }
+      agents: httpRequestsAdaptiveGroups(
+        limit: 1000
+        filter: { datetime_geq: $since, datetime_lt: $until }
+        orderBy: [count_DESC]
+      ) {
+        count
+        dimensions { userAgent }
       }
       countries: httpRequestsAdaptiveGroups(
         limit: 8
@@ -124,24 +140,6 @@ query Live($zone: String!, $since: Time!, $until: Time!) {
 
 const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|go-http|httpclient|monitor|uptime|pingdom|scan|probe|headless|lighthouse|facebookexternalhit|preview/i;
 
-// Bot traffic over the selected range: group by user agent, classify with
-// the same heuristic (no Bot Management dataset on this plan).
-const BOT_QUERY = `
-query Bots($zone: String!, $since: Time!, $until: Time!) {
-  viewer {
-    zones(filter: { zoneTag: $zone }) {
-      agents: httpRequestsAdaptiveGroups(
-        limit: 1000
-        filter: { datetime_geq: $since, datetime_lt: $until }
-        orderBy: [count_DESC]
-      ) {
-        count
-        dimensions { userAgent }
-      }
-    }
-  }
-}`;
-
 // Separate query: firewall dataset needs Zone > Firewall Services > Read,
 // which the "Read analytics and logs" token template does not include.
 // Queried on its own so a missing permission degrades gracefully.
@@ -174,20 +172,58 @@ async function graphql(query, variables) {
   return z;
 }
 
-async function fetchStats(minutes) {
-  const zone = await resolveZone();
-  const until = new Date();
-  const since = new Date(until.getTime() - minutes * 60 * 1000);
-  const vars = { zone, since: since.toISOString(), until: until.toISOString() };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const trafficPromise = graphql(TRAFFIC_QUERY, { ...vars, seriesLimit: Math.min(minutes + 5, 1440) });
+// Split [since, until) into chunks no wider than 1 day (free-plan limit).
+function dayChunks(since, until) {
+  const chunks = [];
+  let start = since.getTime();
+  while (start < until.getTime()) {
+    const end = Math.min(start + DAY_MS, until.getTime());
+    chunks.push({ since: new Date(start).toISOString(), until: new Date(end).toISOString() });
+    start = end;
+  }
+  return chunks;
+}
+
+// Merge grouped rows across chunks: sum counts by dimension key, sort desc.
+function mergeGroups(lists, key, limit) {
+  const map = new Map();
+  for (const rows of lists) {
+    for (const r of rows || []) {
+      const k = String(r.dimensions[key]);
+      map.set(k, (map.get(k) || 0) + r.count);
+    }
+  }
+  return [...map.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([k, count]) => ({ count, dimensions: { [key]: k } }));
+}
+
+async function fetchStats(since, until) {
+  const zone = await resolveZone();
+  const spanMinutes = Math.round((until - since) / 60000);
+  const bucket = bucketFor(spanMinutes);
+  const query = trafficQuery(bucket.dim);
+  const chunks = dayChunks(since, until);
+
+  const trafficPromise = Promise.all(chunks.map((c) =>
+    graphql(query, {
+      zone, since: c.since, until: c.until,
+      seriesLimit: Math.min(Math.ceil(1440 / bucket.minutes) + 5, 1500),
+    })
+  ));
   // Firewall dataset is optional — token may lack Firewall Services Read.
-  const firewallPromise = graphql(FIREWALL_QUERY, vars)
-    .then((z) => ({ firewall: z.firewall || [], firewallError: null }))
+  const firewallPromise = Promise.all(chunks.map((c) =>
+    graphql(FIREWALL_QUERY, { zone, since: c.since, until: c.until })
+  ))
+    .then((zs) => ({ firewall: mergeGroups(zs.map((z) => z.firewall), 'action', 10), firewallError: null }))
     .catch((err) => ({ firewall: [], firewallError: err.message }));
-  // Live humans: fixed 5-minute window regardless of the selected range.
-  const liveSince = new Date(until.getTime() - 5 * 60 * 1000);
-  const livePromise = graphql(LIVE_QUERY, { zone, since: liveSince.toISOString(), until: until.toISOString() })
+  // Live humans: always the last 5 minutes from now, regardless of range.
+  const now = new Date();
+  const liveSince = new Date(now.getTime() - 5 * 60 * 1000);
+  const livePromise = graphql(LIVE_QUERY, { zone, since: liveSince.toISOString(), until: now.toISOString() })
     .then((z) => {
       const ips = new Set();
       for (const g of z.live || []) {
@@ -198,35 +234,36 @@ async function fetchStats(minutes) {
     })
     .catch((err) => ({ liveHumans: null, liveError: err.message }));
 
-  const botsPromise = graphql(BOT_QUERY, vars)
-    .then((z) => {
-      let bot = 0, total = 0;
-      for (const g of z.agents || []) {
-        total += g.count;
-        if (BOT_UA.test(g.dimensions.userAgent || '')) bot += g.count;
-      }
-      return { botRequests: bot, botPct: total ? (bot / total) * 100 : 0, botError: null };
-    })
-    .catch((err) => ({ botRequests: null, botPct: null, botError: err.message }));
+  const [zs, fw, live] = await Promise.all([trafficPromise, firewallPromise, livePromise]);
 
-  const [z, fw, live, bots] = await Promise.all([trafficPromise, firewallPromise, livePromise, botsPromise]);
+  const series = zs.flatMap((z) => z.series || [])
+    .sort((a, b) => a.dimensions.ts < b.dimensions.ts ? -1 : 1);
+  let bot = 0, agentTotal = 0;
+  for (const z of zs) {
+    for (const g of z.agents || []) {
+      agentTotal += g.count;
+      if (BOT_UA.test(g.dimensions.userAgent || '')) bot += g.count;
+    }
+  }
+
   return {
     zoneName: ZONE_NAME,
     since: since.toISOString(),
     until: until.toISOString(),
-    minutes,
-    series: z.series || [],
-    countries: z.countries || [],
-    statusCodes: z.statusCodes || [],
-    cache: z.cache || [],
-    paths: z.paths || [],
+    minutes: spanMinutes,
+    bucketMinutes: bucket.minutes,
+    series,
+    countries: mergeGroups(zs.map((z) => z.countries), 'clientCountryName', 8),
+    statusCodes: mergeGroups(zs.map((z) => z.statusCodes), 'edgeResponseStatus', 12),
+    cache: mergeGroups(zs.map((z) => z.cache), 'cacheStatus', 10),
+    paths: mergeGroups(zs.map((z) => z.paths), 'clientRequestPath', 8),
     firewall: fw.firewall,
     firewallError: fw.firewallError,
     liveHumans: live.liveHumans,
     liveError: live.liveError,
-    botRequests: bots.botRequests,
-    botPct: bots.botPct,
-    botError: bots.botError,
+    botRequests: bot,
+    botPct: agentTotal ? (bot / agentTotal) * 100 : 0,
+    botError: null,
   };
 }
 
@@ -253,9 +290,22 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'CF_API_TOKEN missing. Copy .env.example to .env and set your token.' }));
     }
-    const minutes = Math.max(5, Math.min(1440, Number(url.searchParams.get('minutes')) || 30));
+    // Either an absolute window (since/until ISO) or a rolling ?minutes= one.
+    let since, until;
+    const sinceParam = Date.parse(url.searchParams.get('since'));
+    const untilParam = Date.parse(url.searchParams.get('until'));
+    if (!Number.isNaN(sinceParam) && !Number.isNaN(untilParam) && untilParam > sinceParam) {
+      since = new Date(sinceParam);
+      until = new Date(untilParam);
+    } else {
+      const minutes = Math.max(5, Math.min(10080, Number(url.searchParams.get('minutes')) || 30));
+      until = new Date();
+      since = new Date(until.getTime() - minutes * 60 * 1000);
+    }
+    // Cap span at 7 days (free-plan analytics retention).
+    if (until - since > 7 * DAY_MS) since = new Date(until.getTime() - 7 * DAY_MS);
     try {
-      const stats = await fetchStats(minutes);
+      const stats = await fetchStats(since, until);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       return res.end(JSON.stringify(stats));
     } catch (err) {
