@@ -187,6 +187,35 @@ async function graphql(query, variables) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Live site health check, cached so dashboard refreshes don't hammer the site.
+let siteCache = { at: 0, result: null };
+async function checkSite() {
+  if (Date.now() - siteCache.at < 20000 && siteCache.result) return siteCache.result;
+  const started = Date.now();
+  let result;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 10000);
+    const res = await fetch(`https://${ZONE_NAME}/`, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'cloudflare-monitor-healthcheck' },
+    });
+    clearTimeout(t);
+    const ms = Date.now() - started;
+    result = {
+      up: res.status < 500,
+      status: res.status,
+      ms,
+    };
+  } catch (err) {
+    result = { up: false, status: null, ms: Date.now() - started, error: err.name === 'AbortError' ? 'timeout' : err.message };
+  }
+  siteCache = { at: Date.now(), result };
+  return result;
+}
+
 // Split [since, until) into chunks no wider than 1 day (free-plan limit).
 function dayChunks(since, until) {
   const chunks = [];
@@ -247,7 +276,9 @@ async function fetchStats(since, until) {
     })
     .catch((err) => ({ liveHumans: null, liveError: err.message }));
 
-  const [zs, fw, live] = await Promise.all([trafficPromise, firewallPromise, livePromise]);
+  const sitePromise = checkSite();
+
+  const [zs, fw, live, site] = await Promise.all([trafficPromise, firewallPromise, livePromise, sitePromise]);
 
   const series = zs.flatMap((z) => z.series || [])
     .sort((a, b) => a.dimensions.ts < b.dimensions.ts ? -1 : 1);
@@ -282,6 +313,7 @@ async function fetchStats(since, until) {
     botPct: agentTotal ? (bot / agentTotal) * 100 : 0,
     botError: null,
     aiTraffic: ai,
+    site,
   };
 }
 

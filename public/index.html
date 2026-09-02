@@ -99,6 +99,7 @@
   .tile .value { font-size: 26px; font-weight: 650; }
   .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .tile .sub.bad { color: var(--critical); font-weight: 600; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
   .section-label { color: var(--text-secondary); font-size: 13px; font-weight: 600; margin: 4px 0 8px; }
   .section-label .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
   .tiles-ai { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
@@ -405,7 +406,15 @@ function render(d) {
   const hitRate = cacheTotal ? (cacheHit / cacheTotal) * 100 : 0;
   const rpm = totalReq / d.minutes;
 
+  const s = d.site || {};
+  const siteTile = s.up
+    ? tile('Site status', '<span class="status-dot" style="background:var(--good)"></span>Online',
+        `HTTP ${s.status} · ${s.ms} ms`, 'ok')
+    : tile('Site status', '<span class="status-dot" style="background:var(--critical)"></span>Down',
+        s.error ? s.error : (s.status ? `HTTP ${s.status}` : 'unreachable'), 'bad');
+
   $('tiles').innerHTML =
+    siteTile +
     (d.liveHumans == null
       ? tile('Live humans', '—', d.liveError ? 'unavailable' : '')
       : tile('<span class="live-dot" aria-hidden="true"></span>Live humans', fmtNum(d.liveHumans), 'unique IPs, last 5 min, bots filtered')) +
