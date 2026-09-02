@@ -1,4 +1,5 @@
 .env
 node_modules/
 *.png
+!public/logo.png
 .playwright-mcp/
