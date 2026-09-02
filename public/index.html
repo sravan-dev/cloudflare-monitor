@@ -99,6 +99,10 @@
   .tile .value { font-size: 26px; font-weight: 650; }
   .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
   .tile .sub.bad { color: var(--critical); font-weight: 600; }
+  .section-label { color: var(--text-secondary); font-size: 13px; font-weight: 600; margin: 4px 0 8px; }
+  .section-label .hint { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .tiles-ai { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .tiles-ai .tile .value { font-size: 20px; }
   .tile .sub.ok { color: var(--good-text); }
   .grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 16px; }
   @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
@@ -143,6 +147,9 @@
 <div id="error" role="alert"></div>
 
 <div class="tiles" id="tiles"></div>
+
+<div class="section-label">AI traffic <span class="hint">crawlers &amp; assistants, by user agent</span></div>
+<div class="tiles tiles-ai" id="aiTiles"></div>
 
 <div class="grid2">
   <div class="card">
@@ -413,6 +420,10 @@ function render(d) {
     (d.firewallError
       ? tile('Challenged / blocked', '—', 'token lacks firewall read')
       : tile('Challenged / blocked', fmtNum(blocked)));
+
+  $('aiTiles').innerHTML = (d.aiTraffic || []).map(p =>
+    tile(p.name, fmtNum(p.count), totalReq && p.count ? ((p.count / totalReq) * 100).toFixed(2) + '% of requests' : '')
+  ).join('');
 
   const bucketLabel = d.bucketMinutes === 1 ? 'minute' : d.bucketMinutes === 15 ? '15 min' : 'hour';
   $('reqTitle').textContent = `Requests per ${bucketLabel}`;

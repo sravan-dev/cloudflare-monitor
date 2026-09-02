@@ -140,6 +140,19 @@ query Live($zone: String!, $since: Time!, $until: Time!) {
 
 const BOT_UA = /bot|crawl|spider|slurp|curl|wget|python|go-http|httpclient|monitor|uptime|pingdom|scan|probe|headless|lighthouse|facebookexternalhit|preview/i;
 
+// AI crawlers and assistants, classified by user agent. Referer-based
+// attribution (visitors arriving FROM chatgpt.com etc.) needs the
+// clientRefererHost dimension, which is Pro-plan-gated.
+const AI_PLATFORMS = [
+  { name: 'ChatGPT / OpenAI', re: /gptbot|chatgpt-user|oai-searchbot/i },
+  { name: 'Perplexity', re: /perplexity/i },
+  { name: 'Google AI', re: /google-extended|googleother|google-cloudvertexbot/i },
+  { name: 'Claude / Anthropic', re: /claudebot|claude-web|claude-user|claude-searchbot|anthropic/i },
+  { name: 'Meta AI', re: /meta-external|facebookbot/i },
+  { name: 'Bing / Copilot', re: /bingbot|bingpreview/i },
+  { name: 'Other AI', re: /bytespider|amazonbot|applebot|ccbot|cohere|youbot|duckassistbot|mistralai|ai2bot|diffbot|timpibot|omgili|webzio/i },
+];
+
 // Separate query: firewall dataset needs Zone > Firewall Services > Read,
 // which the "Read analytics and logs" token template does not include.
 // Queried on its own so a missing permission degrades gracefully.
@@ -239,10 +252,14 @@ async function fetchStats(since, until) {
   const series = zs.flatMap((z) => z.series || [])
     .sort((a, b) => a.dimensions.ts < b.dimensions.ts ? -1 : 1);
   let bot = 0, agentTotal = 0;
+  const ai = AI_PLATFORMS.map((p) => ({ name: p.name, count: 0 }));
   for (const z of zs) {
     for (const g of z.agents || []) {
+      const ua = g.dimensions.userAgent || '';
       agentTotal += g.count;
-      if (BOT_UA.test(g.dimensions.userAgent || '')) bot += g.count;
+      if (BOT_UA.test(ua)) bot += g.count;
+      const idx = AI_PLATFORMS.findIndex((p) => p.re.test(ua));
+      if (idx >= 0) ai[idx].count += g.count;
     }
   }
 
@@ -264,6 +281,7 @@ async function fetchStats(since, until) {
     botRequests: bot,
     botPct: agentTotal ? (bot / agentTotal) * 100 : 0,
     botError: null,
+    aiTraffic: ai,
   };
 }
 
