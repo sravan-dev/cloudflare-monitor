@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tijus Academy Traffic</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext x='0' y='13' font-size='13'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --good: #0ca30c;
+    --good-text: #006300;
+    --critical: #d03b3b;
+    --warning: #fab219;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255,255,255,0.10);
+      --series-1: #3987e5;
+      --series-2: #d95926;
+      --good-text: #0ca30c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    margin-bottom: 16px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+  header .zone { color: var(--text-secondary); }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--good); display: inline-block; margin-right: 6px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .spacer { flex: 1; }
+  .controls { display: flex; gap: 8px; align-items: center; }
+  .range-btn {
+    background: var(--surface-1); border: 1px solid var(--border);
+    color: var(--text-secondary); border-radius: 6px; padding: 4px 10px;
+    cursor: pointer; font: inherit;
+  }
+  .range-btn.active { color: var(--text-primary); border-color: var(--series-1); font-weight: 600; }
+  #updated { color: var(--muted); font-size: 12px; }
+  #error {
+    display: none; background: var(--surface-1); border: 1px solid var(--critical);
+    color: var(--critical); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;
+  }
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px; margin-bottom: 16px;
+  }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .tile .label { color: var(--text-secondary); font-size: 12px; margin-bottom: 4px; }
+  .tile .value { font-size: 26px; font-weight: 650; }
+  .tile .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .tile .sub.bad { color: var(--critical); font-weight: 600; }
+  .tile .sub.ok { color: var(--good-text); }
+  .grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 16px; }
+  @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; overflow: hidden;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 0 0 10px; }
+  .chart-wrap { position: relative; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+  .tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 9px; font-size: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15); white-space: nowrap; z-index: 5;
+  }
+  .tooltip .t { color: var(--muted); }
+  .tooltip .v { font-weight: 600; }
+  .bars .row { display: grid; grid-template-columns: 110px 1fr 60px; gap: 8px; align-items: center; padding: 3px 0; }
+  .bars .name { color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bars .track { display: block; height: 10px; border-radius: 4px; background: transparent; position: relative; }
+  .bars .fill { display: block; height: 100%; border-radius: 4px; background: var(--series-1); min-width: 2px; }
+  .bars .num { text-align: right; font-size: 12px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); font-size: 12px; padding: 6px 0; }
+  footer { color: var(--muted); font-size: 11px; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="live-dot" aria-hidden="true"></span>
+  <h1>Cloudflare Traffic</h1>
+  <span class="zone" id="zoneName">tijusacademy.com</span>
+  <span class="spacer"></span>
+  <div class="controls" id="ranges"></div>
+  <span id="updated"></span>
+</header>
+
+<div id="error" role="alert"></div>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="grid2">
+  <div class="card">
+    <h2>Requests per minute</h2>
+    <div class="chart-wrap" id="reqChart"></div>
+  </div>
+  <div class="card">
+    <h2>Bandwidth per minute</h2>
+    <div class="chart-wrap" id="bwChart"></div>
+  </div>
+</div>
+
+<div class="grid3">
+  <div class="card"><h2>Top countries</h2><div class="bars" id="countries"></div></div>
+  <div class="card"><h2>Status codes</h2><div class="bars" id="statusCodes"></div></div>
+  <div class="card"><h2>Cache status</h2><div class="bars" id="cache"></div></div>
+  <div class="card"><h2>Top paths</h2><div class="bars" id="paths"></div></div>
+  <div class="card"><h2>Firewall actions</h2><div class="bars" id="firewall"></div></div>
+</div>
+
+<footer>Data: Cloudflare GraphQL Analytics (adaptive sampling; edge data lags ~1–5 min). Auto-refresh every 30 s.</footer>
+
+<script>
+const RANGES = [ [15,'15m'], [30,'30m'], [60,'1h'], [360,'6h'], [1440,'24h'] ];
+let minutes = 30;
+let timer = null;
+
+const $ = (id) => document.getElementById(id);
+
+function fmtNum(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e4) return (n / 1e3).toFixed(1) + 'k';
+  return String(Math.round(n));
+}
+function fmtBytes(b) {
+  const u = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(b >= 100 || i === 0 ? 0 : 1) + ' ' + u[i];
+}
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// ---- range buttons ----
+function renderRanges() {
+  $('ranges').innerHTML = '';
+  for (const [m, label] of RANGES) {
+    const b = document.createElement('button');
+    b.className = 'range-btn' + (m === minutes ? ' active' : '');
+    b.textContent = label;
+    b.onclick = () => { minutes = m; renderRanges(); load(); };
+    $('ranges').appendChild(b);
+  }
+}
+
+// ---- stat tiles ----
+function tile(label, value, sub, subClass) {
+  return `<div class="tile"><div class="label">${label}</div><div class="value">${value}</div>` +
+         (sub ? `<div class="sub ${subClass || ''}">${sub}</div>` : '') + `</div>`;
+}
+
+// ---- line chart (single series, crosshair tooltip) ----
+function lineChart(container, points, color, fmt) {
+  const el = $(container);
+  el.innerHTML = '';
+  if (!points.length) { el.innerHTML = '<div class="empty">No traffic in this window.</div>'; return; }
+
+  const W = el.clientWidth || 500, H = 180;
+  const pad = { l: 44, r: 10, t: 8, b: 22 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const maxV = Math.max(...points.map(p => p.v), 1);
+  const x = (i) => pad.l + (points.length === 1 ? iw / 2 : (i / (points.length - 1)) * iw);
+  const y = (v) => pad.t + ih - (v / maxV) * ih;
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  // gridlines + y labels (3 ticks)
+  for (let t = 0; t <= 3; t++) {
+    const v = (maxV / 3) * t, gy = y(v);
+    const line = document.createElementNS(svgNS, 'line');
+    line.setAttribute('x1', pad.l); line.setAttribute('x2', W - pad.r);
+    line.setAttribute('y1', gy); line.setAttribute('y2', gy);
+    line.setAttribute('stroke', t === 0 ? 'var(--baseline)' : 'var(--grid)');
+    line.setAttribute('stroke-width', '1');
+    svg.appendChild(line);
+    const txt = document.createElementNS(svgNS, 'text');
+    txt.setAttribute('x', pad.l - 6); txt.setAttribute('y', gy + 3);
+    txt.setAttribute('text-anchor', 'end');
+    txt.textContent = fmt(v);
+    svg.appendChild(txt);
+  }
+  // x labels: first, middle, last
+  [0, Math.floor((points.length - 1) / 2), points.length - 1]
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .forEach(i => {
+      const txt = document.createElementNS(svgNS, 'text');
+      txt.setAttribute('x', x(i)); txt.setAttribute('y', H - 6);
+      txt.setAttribute('text-anchor', i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle');
+      txt.textContent = fmtTime(points[i].t);
+      svg.appendChild(txt);
+    });
+
+  // area fill (subtle) + line
+  const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+  const area = document.createElementNS(svgNS, 'path');
+  area.setAttribute('d', d + `L${x(points.length - 1)},${y(0)}L${x(0)},${y(0)}Z`);
+  area.setAttribute('fill', color); area.setAttribute('opacity', '0.08');
+  svg.appendChild(area);
+  const line = document.createElementNS(svgNS, 'path');
+  line.setAttribute('d', d);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(line);
+
+  // crosshair + hover dot
+  const cross = document.createElementNS(svgNS, 'line');
+  cross.setAttribute('stroke', 'var(--baseline)'); cross.setAttribute('stroke-width', '1');
+  cross.setAttribute('y1', pad.t); cross.setAttribute('y2', pad.t + ih);
+  cross.style.display = 'none';
+  svg.appendChild(cross);
+  const dot = document.createElementNS(svgNS, 'circle');
+  dot.setAttribute('r', '4'); dot.setAttribute('fill', color);
+  dot.setAttribute('stroke', 'var(--surface-1)'); dot.setAttribute('stroke-width', '2');
+  dot.style.display = 'none';
+  svg.appendChild(dot);
+
+  const tip = document.createElement('div');
+  tip.className = 'tooltip';
+  el.appendChild(svg);
+  el.appendChild(tip);
+
+  svg.addEventListener('mousemove', (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const mx = (ev.clientX - rect.left) * (W / rect.width);
+    let best = 0, bd = Infinity;
+    points.forEach((p, i) => { const d2 = Math.abs(x(i) - mx); if (d2 < bd) { bd = d2; best = i; } });
+    const px = x(best), py = y(points[best].v);
+    cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.style.display = '';
+    dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.style.display = '';
+    tip.innerHTML = `<span class="t">${fmtTime(points[best].t)}</span> <span class="v">${fmt(points[best].v)}</span>`;
+    tip.style.display = 'block';
+    const left = (px / W) * rect.width;
+    tip.style.left = Math.min(left + 10, rect.width - tip.offsetWidth - 4) + 'px';
+    tip.style.top = (py / H) * rect.height - 34 + 'px';
+  });
+  svg.addEventListener('mouseleave', () => {
+    cross.style.display = 'none'; dot.style.display = 'none'; tip.style.display = 'none';
+  });
+}
+
+// ---- horizontal bar list ----
+function barList(container, rows, nameKey, opts = {}) {
+  const el = $(container);
+  if (!rows.length) { el.innerHTML = '<div class="empty">No data in this window.</div>'; return; }
+  const max = Math.max(...rows.map(r => r.count), 1);
+  el.innerHTML = rows.map(r => {
+    const name = String(r.dimensions[nameKey] ?? '—');
+    const pct = (r.count / max) * 100;
+    return `<div class="row" title="${name}: ${r.count.toLocaleString()}">
+      <span class="name">${name}</span>
+      <span class="track"><span class="fill" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="num">${fmtNum(r.count)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ---- load + render ----
+async function load() {
+  try {
+    const res = await fetch(`/api/stats?minutes=${minutes}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    $('error').style.display = 'none';
+    render(data);
+    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    $('error').textContent = err.message;
+    $('error').style.display = 'block';
+  }
+}
+
+function render(d) {
+  $('zoneName').textContent = d.zoneName;
+
+  const totalReq = d.series.reduce((a, p) => a + p.count, 0);
+  const totalVisits = d.series.reduce((a, p) => a + (p.sum.visits || 0), 0);
+  const totalBytes = d.series.reduce((a, p) => a + (p.sum.edgeResponseBytes || 0), 0);
+  const cacheHit = d.cache.filter(c => c.dimensions.cacheStatus === 'hit').reduce((a, c) => a + c.count, 0);
+  const cacheTotal = d.cache.reduce((a, c) => a + c.count, 0);
+  const err5xx = d.statusCodes.filter(s => s.dimensions.edgeResponseStatus >= 500).reduce((a, s) => a + s.count, 0);
+  const statusTotal = d.statusCodes.reduce((a, s) => a + s.count, 0);
+  const blocked = d.firewall.filter(f => f.dimensions.action === 'block' || f.dimensions.action === 'challenge' || f.dimensions.action === 'managed_challenge' || f.dimensions.action === 'jschallenge')
+    .reduce((a, f) => a + f.count, 0);
+  const errRate = statusTotal ? (err5xx / statusTotal) * 100 : 0;
+  const hitRate = cacheTotal ? (cacheHit / cacheTotal) * 100 : 0;
+  const rpm = totalReq / d.minutes;
+
+  $('tiles').innerHTML =
+    (d.liveHumans == null
+      ? tile('Live humans', '—', d.liveError ? 'unavailable' : '')
+      : tile('<span class="live-dot" aria-hidden="true"></span>Live humans', fmtNum(d.liveHumans), 'unique IPs, last 5 min, bots filtered')) +
+    tile('Requests', fmtNum(totalReq), fmtNum(rpm) + ' / min avg') +
+    tile('Visits', fmtNum(totalVisits)) +
+    tile('Bandwidth', fmtBytes(totalBytes)) +
+    tile('Cache hit ratio', hitRate.toFixed(1) + '%', cacheTotal ? fmtNum(cacheHit) + ' hits' : '') +
+    tile('5xx error rate', errRate.toFixed(2) + '%',
+      errRate > 1 ? '⚠ elevated' : '✓ healthy', errRate > 1 ? 'bad' : 'ok') +
+    (d.firewallError
+      ? tile('Challenged / blocked', '—', 'token lacks firewall read')
+      : tile('Challenged / blocked', fmtNum(blocked)));
+
+  lineChart('reqChart',
+    d.series.map(p => ({ t: p.dimensions.datetimeMinute, v: p.count })),
+    getComputedStyle(document.documentElement).getPropertyValue('--series-1').trim(),
+    fmtNum);
+  lineChart('bwChart',
+    d.series.map(p => ({ t: p.dimensions.datetimeMinute, v: p.sum.edgeResponseBytes || 0 })),
+    getComputedStyle(document.documentElement).getPropertyValue('--series-2').trim(),
+    fmtBytes);
+
+  barList('countries', d.countries, 'clientCountryName');
+  barList('statusCodes', d.statusCodes, 'edgeResponseStatus');
+  barList('cache', d.cache, 'cacheStatus');
+  barList('paths', d.paths, 'clientRequestPath');
+  if (d.firewallError) {
+    $('firewall').innerHTML = '<div class="empty">Unavailable — add <b>Zone &gt; Firewall Services &gt; Read</b> to the API token to see WAF events.</div>';
+  } else {
+    barList('firewall', d.firewall, 'action');
+  }
+}
+
+renderRanges();
+load();
+timer = setInterval(load, 30000);
+window.addEventListener('resize', () => load());
+</script>
+</body>
+</html>
