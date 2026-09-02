@@ -25,6 +25,12 @@ Near-real-time traffic dashboard for a Cloudflare zone. Zero dependencies — pl
 - Top countries, status codes, cache status, top paths, firewall actions
 - Time ranges: 15m / 30m / 1h / 6h / 24h; auto-refreshes every 30 seconds
 
+## Deploying publicly (Hostinger, VPS, etc.)
+
+- Node 18+ app; entry point `server.js` (`npm start`).
+- Set environment variables on the host: `CF_API_TOKEN`, `CF_ZONE_NAME` (or `CF_ZONE_ID`), and **`DASHBOARD_PASSWORD`** — with it set, the dashboard requires HTTP Basic auth (username `admin`). Without it the dashboard and your traffic stats are public to anyone with the URL.
+- The host's `PORT` variable is respected automatically.
+
 ## Notes
 
 - Data source is `httpRequestsAdaptiveGroups` / `firewallEventsAdaptiveGroups` (available on all plans, adaptive sampling). Edge analytics lag roughly 1–5 minutes — "near real time".

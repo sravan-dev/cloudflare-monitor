@@ -201,8 +201,20 @@ async function fetchStats(minutes) {
 // ---------- HTTP server ----------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 
+const PASSWORD = env.DASHBOARD_PASSWORD;
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  // Optional HTTP Basic auth for public deployments: set DASHBOARD_PASSWORD.
+  if (PASSWORD) {
+    const auth = req.headers.authorization || '';
+    const expected = 'Basic ' + Buffer.from('admin:' + PASSWORD).toString('base64');
+    if (auth !== expected) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Cloudflare Monitor"' });
+      return res.end('Authentication required');
+    }
+  }
 
   if (url.pathname === '/api/stats') {
     if (!TOKEN) {
