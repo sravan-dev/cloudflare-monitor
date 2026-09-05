@@ -6,6 +6,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+const { startAlerts, sendTestAlert } = require('./alerts.js');
 
 // ---------- .env ----------
 function loadEnv(file) {
@@ -382,7 +383,16 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Cloudflare monitor: http://localhost:${PORT}`);
-  if (!TOKEN) console.warn('WARNING: CF_API_TOKEN not set. Copy .env.example to .env and add your token.');
-});
+// `node server.js --test-alert` verifies the SMTP settings and exits.
+if (process.argv.includes('--test-alert')) {
+  sendTestAlert(env).then(() => process.exit(0), (err) => {
+    console.error(`Test email FAILED: ${err.message}`);
+    process.exit(1);
+  });
+} else {
+  server.listen(PORT, () => {
+    console.log(`Cloudflare monitor: http://localhost:${PORT}`);
+    if (!TOKEN) console.warn('WARNING: CF_API_TOKEN not set. Copy .env.example to .env and add your token.');
+    if (TOKEN) startAlerts({ env, zoneName: ZONE_NAME, checkSite, graphql, resolveZone });
+  });
+}
